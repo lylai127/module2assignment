@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>回到1992年的東涌 · 村落地圖與文本網絡</title>
+<meta name="description" content="以 1992 年東涌田野調查為基礎的互動故事網站：村落地圖、關鍵詞、文字雲與 VOSviewer 共現網絡。">
+<link rel="preload" as="image" href="data/clippedmap_0.png">
+<link rel="stylesheet" href="css/leaflet.css">
+<link rel="stylesheet" href="css/qgis2web.css">
+<style>
+/* ============ 基礎 ============ */
+:root{
+  --paper:#faf7ef;
+  --paper-2:#f5f1e7;
+  --jade:#fbfaf5;
+  --ink:#3d3227;
+  --ink-soft:#63564a;
+  --brown:#4a3f31;
+  --brown-deep:#322a21;
+  --gold:#ae9259;
+  --gold-light:#d6c28e;
+  --line:#e5ddcc;
+  --shadow:0 6px 24px rgba(61,50,39,.10);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:"Microsoft JhengHei","PingFang TC","PingFang SC","Noto Sans TC",Arial,sans-serif;
+  color:var(--ink);
+  background:var(--paper);
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit}
+
+/* ============ 第一層：封面 ============ */
+#cover{
+  position:fixed;
+  inset:0;
+  z-index:3000;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  padding:48px 24px;
+  overflow:hidden;
+  background:
+    radial-gradient(ellipse at 20% 15%, rgba(214,194,142,.20), transparent 55%),
+    radial-gradient(ellipse at 82% 78%, rgba(174,146,89,.16), transparent 55%),
+    linear-gradient(170deg,#fdfbf6 0%, #f8f4ea 45%, #f2ecdd 100%);
+  transition:opacity .65s ease, visibility .65s ease;
+}
+#cover.dismissed{
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+}
+/* 紙紋 */
+#cover::before{
+  content:"";
+  position:absolute;inset:0;
+  pointer-events:none;
+  opacity:.5;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(120,90,55,.045) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(120,90,55,.035) 0 1px, transparent 1px 4px);
+  mix-blend-mode:multiply;
+}
+/* 舊相片邊框 */
+#cover::after{
+  content:"";
+  position:absolute;
+  inset:26px;
+  border:1px solid rgba(120,90,55,.28);
+  pointer-events:none;
+}
+.cover-inner{position:relative;z-index:2;max-width:820px}
+
+.cover-kicker{
+  font-size:13px;
+  letter-spacing:.42em;
+  color:var(--gold);
+  text-transform:uppercase;
+  margin-bottom:28px;
+  padding-left:.42em;
+}
+.cover-kicker span{
+  display:inline-block;
+  padding:6px 2px;
+  border-top:1px solid rgba(176,141,79,.5);
+  border-bottom:1px solid rgba(176,141,79,.5);
+}
+.cover-title{
+  /* 單行顯示：字級隨視窗寬度縮放（clamp 上限按內寬 820px 調整） */
+  font-size:clamp(17px,3.05vw,34px);
+  line-height:1.5;
+  font-weight:700;
+  letter-spacing:.03em;
+  color:var(--brown-deep);
+  text-shadow:0 1px 0 rgba(255,255,255,.6);
+  white-space:nowrap;
+}
+.cover-title .year{
+  color:var(--gold);
+  position:relative;
+  white-space:nowrap;
+}
+.cover-sub{
+  margin-top:26px;
+  font-size:clamp(13px,1.7vw,16px);
+  line-height:2;
+  color:var(--ink-soft);
+  letter-spacing:.08em;
+}
+.cover-rule{
+  width:76px;height:2px;
+  margin:32px auto 0;
+  background:linear-gradient(90deg,transparent,var(--gold),transparent);
+}
+
+/* 進入按鈕 */
+#enter-btn{
+  margin-top:44px;
+  display:inline-flex;
+  align-items:center;
+  gap:12px;
+  padding:16px 46px;
+  font-size:17px;
+  letter-spacing:.24em;
+  font-weight:700;
+  color:#fdf8ef;
+  background:linear-gradient(150deg,#5a4128,#332417);
+  border:1px solid var(--gold);
+  border-radius:2px;
+  cursor:pointer;
+  box-shadow:0 10px 26px rgba(46,31,20,.28), inset 0 1px 0 rgba(255,255,255,.14);
+  transition:transform .22s ease, box-shadow .22s ease, background .22s ease;
+}
+#enter-btn:hover{
+  transform:translateY(-2px);
+  background:linear-gradient(150deg,#6b4d2f,#3d2b1b);
+  box-shadow:0 14px 32px rgba(46,31,20,.36), inset 0 1px 0 rgba(255,255,255,.2);
+}
+#enter-btn:active{transform:translateY(0)}
+#enter-btn .arrow{
+  display:inline-block;
+  transition:transform .25s ease;
+  color:var(--gold-light);
+}
+#enter-btn:hover .arrow{transform:translateY(4px)}
+
+/* 往下捲動提示：完全隱藏 */
+.scroll-hint{
+  display:none !important;
+}
+
+/* ============ 第二層：地圖層 ============ */
+#atlas{
+  position:fixed;
+  inset:0;
+  z-index:1;
+  display:flex;
+  flex-direction:column;
+  background:var(--jade);
+  opacity:0;
+  visibility:hidden;
+  transition:opacity .65s ease .1s, visibility .65s ease .1s;
+}
+#atlas.active{
+  opacity:1;
+  visibility:visible;
+}
+.atlas-head{
+  flex:none;
+  padding:13px 22px;
+  background:linear-gradient(180deg,#fdfcf8,#f8f5ec);
+  border-bottom:1px solid var(--line);
+  position:relative;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+}
+.atlas-head h2{
+  font-size:clamp(17px,2vw,23px);
+  letter-spacing:.09em;
+  color:var(--brown-deep);
+  font-weight:700;
+  text-align:left;
+  white-space:nowrap;
+}
+.atlas-head h2::after{
+  content:"";
+  display:block;
+  width:44px;height:2px;
+  margin-top:7px;
+  background:linear-gradient(90deg,var(--gold),rgba(174,146,89,0));
+}
+/* 回到首頁 */
+#home-btn{
+  flex:none;
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:9px 18px;
+  font-size:12.5px;
+  letter-spacing:.12em;
+  font-weight:700;
+  color:#f7efdf;
+  background:linear-gradient(150deg,#5a4128,#3a2818);
+  border:1px solid var(--gold);
+  border-radius:2px;
+  cursor:pointer;
+  box-shadow:0 4px 14px rgba(46,31,20,.18);
+  transition:transform .2s ease, background .2s ease, box-shadow .2s ease;
+  white-space:nowrap;
+}
+#home-btn:hover{
+  transform:translateY(-1px);
+  background:linear-gradient(150deg,#6b4d2f,#3d2b1b);
+  box-shadow:0 8px 20px rgba(46,31,20,.26);
+}
+#home-btn:active{transform:translateY(0)}
+#home-btn .ic{font-size:13px;line-height:1;color:var(--gold-light)}
+
+/* 版面：左側篩選 / 中間地圖 + 右側網絡（可拖拉分欄） */
+.atlas-body{
+  flex:1;
+  display:flex;
+  min-height:0;
+  overflow:hidden;
+  background:var(--jade);
+}
+
+/* 左側面板 */
+#side{
+  width:250px;
+  min-width:250px;
+  flex:none;
+  background:linear-gradient(180deg,#fdfcf8,#f7f4eb);
+  border-right:1px solid var(--line);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.side-scroll{
+  padding:18px 16px;
+  overflow-y:auto;
+  flex:1;
+}
+.panel-title{
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.16em;
+  color:var(--brown);
+  padding-bottom:8px;
+  margin-bottom:14px;
+  border-bottom:1px solid var(--line);
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.panel-title::before{
+  content:"";
+  width:4px;height:14px;
+  background:var(--gold);
+  display:inline-block;
+}
+.filter-group{margin-bottom:22px}
+.filter-title{
+  font-size:12px;
+  font-weight:700;
+  color:var(--brown);
+  margin-bottom:9px;
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  gap:8px;
+}
+.filter-title .en{
+  font-size:10px;
+  font-weight:400;
+  color:#9a8770;
+  letter-spacing:.04em;
+}
+.filter-actions{display:flex;gap:10px;font-size:10.5px;margin-bottom:8px}
+.filter-actions a{
+  color:var(--gold);
+  cursor:pointer;
+  text-decoration:none;
+  border-bottom:1px dotted rgba(176,141,79,.6);
+}
+.filter-actions a:hover{color:var(--brown)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:5px 11px;
+  font-size:11.5px;
+  color:var(--ink-soft);
+  background:#fdf9f1;
+  border:1px solid var(--line);
+  border-radius:14px;
+  cursor:pointer;
+  transition:all .16s ease;
+  user-select:none;
+}
+.chip:hover{border-color:var(--gold);background:#fffdf8}
+.chip .n{font-size:9.5px;opacity:.6}
+.chip.active{
+  background:linear-gradient(150deg,#5a4128,#3a2818);
+  color:#f7efdf;
+  border-color:var(--brown);
+}
+.chip.active .n{opacity:.75}
+
+.count-box{
+  font-size:11.5px;
+  color:var(--ink-soft);
+  text-align:center;
+  padding:11px 8px;
+  margin:0 0 16px;
+  background:#fdf9f1;
+  border:1px dashed var(--line);
+  border-radius:3px;
+  letter-spacing:.03em;
+}
+.count-box strong{color:var(--gold);font-size:15px}
+
+.btn-reset{
+  width:100%;
+  padding:11px;
+  font-size:12px;
+  letter-spacing:.1em;
+  color:var(--brown);
+  background:#fdf9f1;
+  border:1px solid var(--line);
+  border-radius:3px;
+  cursor:pointer;
+  transition:all .18s;
+}
+.btn-reset:hover{background:var(--brown);color:#f7efdf;border-color:var(--brown)}
+
+/* 中間地圖 */
+#map-wrap{
+  flex:1 1 auto;
+  min-width:0;
+  position:relative;
+  background:#efeade;
+}
+#map{position:absolute;inset:0;background:#efeade}
+.leaflet-container{background:#efeade;font-family:inherit}
+/* 左下角地圖來源 */
+.leaflet-control-attribution{
+  background:rgba(253,252,248,.9) !important;
+  border:1px solid var(--line);
+  border-right:0;border-bottom:0;
+  padding:4px 9px !important;
+  font-size:10.5px !important;
+  letter-spacing:.06em;
+  color:#7a6a52 !important;
+  border-radius:0 2px 0 0;
+  box-shadow:none;
+}
+.leaflet-control-attribution a{color:#7a6a52}
+.leaflet-popup-content-wrapper{border-radius:3px}
+.leaflet-popup-content{margin:10px 12px;overflow-y:auto}
+.village-label{
+  font-family:"Microsoft JhengHei","PingFang TC",sans-serif !important;
+  color:#6b4f33 !important;
+  font-size:12px !important;
+  font-weight:700 !important;
+  letter-spacing:.02em;
+  padding:1px 4px !important;
+  background:rgba(253,251,244,.72);
+  border-radius:2px;
+  box-shadow:0 0 0 1px rgba(253,251,244,.5);
+  text-shadow:0 0 3px #fff,0 0 3px #fff,1px 1px 0 #fff;
+  white-space:nowrap;
+}
+.village-label::before{display:none !important}
+.map-badge{ display:none !important; }
+
+/* ===== 可拖拉分欄 ===== */
+#splitter{
+  flex:0 0 7px;
+  width:7px;
+  cursor:col-resize;
+  background:linear-gradient(90deg,#eee8d9,#ded5c0 50%,#eee8d9);
+  border-left:1px solid var(--line);
+  border-right:1px solid var(--line);
+  position:relative;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  transition:background .18s;
+  touch-action:none;
+}
+#splitter::after{
+  content:"";
+  width:3px;height:44px;
+  border-radius:2px;
+  background:repeating-linear-gradient(180deg,#b3a68c 0 2px,transparent 2px 6px);
+  opacity:.75;
+}
+#splitter:hover,#splitter.dragging{
+  background:linear-gradient(90deg,#e3d9c2,#cdc0a4 50%,#e3d9c2);
+}
+body.dragging-col{cursor:col-resize;user-select:none}
+body.dragging-col iframe{pointer-events:none}
+
+/* Leaflet popup 內表格 */
+.village-popup-table{border-collapse:collapse;font-size:12px;line-height:1.6}
+.village-popup-table th{
+  text-align:left;vertical-align:top;
+  padding:3px 10px 3px 0;
+  color:#96866c;
+  font-weight:400;
+  white-space:nowrap;
+  font-size:11px;
+}
+.village-popup-table td{
+  padding:3px 0;
+  vertical-align:top;
+  color:var(--ink);
+  max-width:210px;
+}
+/* 覆蓋 qgis2web.css 的 .leaflet-popup-content td img 規則 */
+.leaflet-popup-content .village-popup-table td img,
+.village-popup-table img{
+  max-width:150px !important;
+  max-height:120px !important;
+  width:auto !important;
+  height:auto !important;
+  border:1px solid var(--line);
+  cursor:zoom-in;
+  display:block;
+}
+
+/* 字雲放大燈箱 */
+#lightbox{
+  position:fixed;
+  inset:0;
+  z-index:5000;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  background:rgba(38,32,25,.82);
+  padding:32px;
+  cursor:zoom-out;
+}
+#lightbox.open{display:flex}
+#lightbox img{
+  max-width:92vw;
+  max-height:88vh;
+  background:#fff;
+  padding:8px;
+  box-shadow:0 18px 50px rgba(0,0,0,.45);
+}
+.village-popup-table a{color:#8a6a3a;word-break:break-all}
+
+/* 右側網絡面板 */
+#net{
+  flex:0 0 30%;
+  width:30%;
+  min-width:220px;
+  background:#fdfcf8;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+#net:fullscreen,
+#net:-webkit-full-screen{
+  width:100% !important;
+  height:100% !important;
+  max-width:none !important;
+  background:#fdfcf8;
+}
+#net:fullscreen #vos-frame,
+#net:-webkit-full-screen #vos-frame{
+  min-height:0;
+  height:auto;
+}
+.net-head{
+  padding:14px 16px 11px;
+  border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#fdf9f1,#f6eee0);
+}
+.net-head h3{
+  font-size:14px;
+  color:var(--brown-deep);
+  letter-spacing:.08em;
+  font-weight:700;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.net-head h3 .dot{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--gold);
+  flex:none;
+}
+.net-head p{
+  margin-top:6px;
+  font-size:11px;
+  color:#9a8770;
+  line-height:1.6;
+}
+#vos-frame{
+  flex:1;
+  width:100%;
+  border:0;
+  background:#fff;
+  min-height:240px;
+  display:block;
+}
+
+/* 頁腳 */
+.atlas-foot{
+  flex:none;
+  padding:8px 24px;
+  text-align:center;
+  font-size:10px;
+  letter-spacing:.07em;
+  color:#a89a84;
+  background:#f8f5ec;
+  border-top:1px solid var(--line);
+}
+
+/* ============ 響應式 ============ */
+@media (max-width:1080px){
+  #side{width:222px;min-width:222px}
+  #net{flex-basis:40%;width:40%}
+}
+@media (max-width:900px){
+  #atlas{position:fixed;overflow-y:auto;overflow-x:hidden}
+  .atlas-head{position:relative;padding:12px 14px}
+  .atlas-body{
+    flex-direction:column;
+    overflow:visible;
+    flex:none;
+  }
+  #side{
+    width:100%;min-width:0;
+    border-right:none;
+    border-bottom:1px solid var(--line);
+    order:1;
+  }
+  .side-scroll{
+    padding:12px 14px;
+    max-height:none;
+    display:flex;
+    flex-wrap:wrap;
+    gap:0 22px;
+    align-items:flex-start;
+  }
+  .panel-title{width:100%}
+  .filter-group{margin-bottom:12px;flex:1 1 240px}
+  .count-box{margin:0 0 10px;flex:1 1 140px;align-self:center}
+  .btn-reset{flex:1 1 180px;align-self:center}
+  #map-wrap{
+    order:2;
+    width:100%;
+    height:56vh;
+    min-height:340px;
+  }
+  /* 手機：分欄改用水平分隔 */
+  #splitter{
+    order:3;
+    width:100%;
+    flex:0 0 9px;
+    min-height:9px;
+    cursor:row-resize;
+    border-left:none;border-right:none;
+    border-top:1px solid var(--line);
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#eee8d9,#ded5c0 50%,#eee8d9);
+  }
+  #splitter::after{
+    width:44px;height:3px;
+    background:repeating-linear-gradient(90deg,#b3a68c 0 2px,transparent 2px 6px);
+  }
+  body.dragging-col{cursor:row-resize}
+  #net{
+    order:4;
+    width:100%!important;
+    flex:0 0 auto!important;
+    height:60vh;
+    min-width:0;
+  }
+  #vos-frame{min-height:300px}
+  .chips{gap:6px}
+}
+@media (max-width:560px){
+  #cover{padding:36px 20px}
+  #cover::after{inset:14px}
+  .cover-kicker{letter-spacing:.3em;font-size:11px}
+  .cover-sub{letter-spacing:.04em}
+  /* 窄螢幕：改為兩行並縮小同句距，避免超出畫面 */
+  .cover-title{
+    font-size:clamp(26px,7.4vw,34px);
+    white-space:normal;
+    line-height:1.5;
+    letter-spacing:.02em;
+  }
+  #enter-btn{padding:14px 34px;font-size:15px;letter-spacing:.18em}
+  .atlas-head{padding:11px 12px;gap:10px}
+  .atlas-head h2{font-size:15px;letter-spacing:.05em}
+  #home-btn{padding:8px 12px;font-size:11.5px;letter-spacing:.06em}
+  .scroll-hint{font-size:10px}
+  #map-wrap{height:50vh;min-height:300px}
+}
+
+/* 減少動態偏好 */
+@media (prefers-reduced-motion:reduce){
+  #cover,#atlas{transition:none}
+  #cover .scroll-hint{animation:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== 第一層：封面 ==================== -->
+<section id="cover">
+  <div class="cover-inner">
+    <div class="cover-kicker"><span>東涌 · Tung Chung · 田野筆記</span></div>
+    <h1 class="cover-title">讓我們一起回到<span class="year">1992年</span>的東涌，探索當年的故事</h1>
+    <p class="cover-sub">
+      一張舊地圖，七條村落，與村民口述裡的神位、祠堂與大王爺。<br>
+      點選地圖上的村莊，比對它的地理與文字網絡。
+    </p>
+    <div class="cover-rule"></div>
+    <button id="enter-btn" type="button">
+      開始探索
+      <span class="arrow">▾</span>
+    </button>
+    <div class="scroll-hint" id="scroll-hint" aria-hidden="true"><span>向下捲動</span><i></i></div>
+  </div>
+</section>
+
+<!-- ==================== 第二層：地圖層 ==================== -->
+<section id="atlas">
+  <header class="atlas-head">
+    <h2>1992年東涌村落故事</h2>
+    <button id="home-btn" type="button" title="返回首頁" onclick="backToHomeFromCover()">
+      <span class="ic">←</span>回到首頁
+    </button>
+  </header>
+
+  <div class="atlas-body" id="atlas-body">
+
+    <!-- 左側：篩選 -->
+    <aside id="side">
+      <div class="side-scroll">
+        <div class="panel-title">探索工具 · EXPLORE</div>
+
+        <div class="filter-group">
+          <div class="filter-title">
+            <span>關鍵詞篩選 <span class="en">Top Terms</span></span>
+          </div>
+          <div class="filter-actions">
+            <a data-act="topterms-all">全部</a>
+            <a data-act="topterms-clear">清除</a>
+          </div>
+          <div class="chips" id="terms-chips"></div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-title">
+            <span>村落 <span class="en">Villages</span></span>
+          </div>
+          <div class="filter-actions">
+            <a data-act="villages-all">全部</a>
+            <a data-act="villages-clear">清除</a>
+          </div>
+          <div class="chips" id="villages-chips"></div>
+        </div>
+
+        <div class="count-box" id="count-box">
+          顯示 <strong id="count-num">7</strong> / 7 條村落
+        </div>
+
+        <button class="btn-reset" type="button" id="reset-view">◎ 重設地圖位置</button>
+      </div>
+    </aside>
+
+    <!-- 中間：地圖 -->
+    <div id="map-wrap">
+      <div id="map"></div>
+    </div>
+
+    <!-- 可拖拉分欄 -->
+    <div id="splitter" role="separator" aria-orientation="vertical"
+         aria-label="拖拉調整地圖與網絡面板寬度" tabindex="0" title="拖拉調整寬度"></div>
+
+    <!-- 右側：VOSviewer 網絡 -->
+    <aside id="net">
+      <div class="net-head">
+        <h3><span class="dot"></span><span id="net-title">村莊文本網絡</span></h3>
+        <p id="net-hint">點擊左側地圖上的村莊圓點，即可載入該村的共現詞網絡。</p>
+      </div>
+      <iframe id="vos-frame" title="VOSviewer 共現網絡"
+        allowfullscreen="true"
+        webkitallowfullscreen="true"
+        mozallowfullscreen="true"
+        allow="fullscreen; web-share; clipboard-write"
+        referrerpolicy="no-referrer-when-downgrade"
+        src="data:text/html;charset=utf-8,%3C!doctype%20html%3E%3Chtml%3E%3Chead%3E%3Cmeta%20charset%3D%22utf-8%22%3E%3C%2Fhead%3E%3Cbody%20style%3D%22margin%3A0%3Bheight%3A100vh%3Bdisplay%3Aflex%3Balign-items%3Acenter%3Bjustify-content%3Acenter%3Bfont-family%3A%22Microsoft%20JhengHei%22%2Csans-serif%3Bcolor%3A%239a8770%3Bbackground%3A%23fdf9f1%3Btext-align%3Acenter%3Bpadding%3A24px%3B%22%3E%3Cp%3E%E9%BB%9E%E6%93%8A%E5%9C%B0%E5%9C%96%E4%B8%8A%E7%9A%84%E6%9D%91%E8%8E%8A%E5%9C%93%E9%BB%9E%EF%BC%8C%3Cbr%3E%E5%8D%B3%E5%8F%AF%E8%BC%89%E5%85%A5%E8%A9%B2%E6%9D%91%E7%9A%84%E5%85%B1%E7%8F%BE%E7%B6%B2%E7%B5%A1%E3%80%82%3C%2Fp%3E%3C%2Fbody%3E%3C%2Fhtml%3E"></iframe>
+    </aside>
+
+  </div>
+
+  <footer class="atlas-foot">
+    資料來源：1992 年東涌田野調查筆記 · 文字分析由 Voyant Tools 與 VOSviewer 產出 · 地圖由 QGIS / qgis2web 匯出
+  </footer>
+</section>
+
+<!-- 字雲放大燈箱 -->
+<div id="lightbox" role="dialog" aria-modal="true" aria-label="文字雲放大檢視">
+  <img alt="文字雲放大圖">
+</div>
+
+<!-- ==================== 資料與地圖 ==================== -->
+<script src="js/leaflet.js"></script>
+<script src="js/Autolinker.min.js"></script>
+<script src="data/village_text_points_1.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- 1. 封面 → 地圖層（切換，不捲動） ---------- */
+  var cover = document.getElementById("cover");
+  var atlas = document.getElementById("atlas");
+  var homeBtn = document.getElementById("home-btn");
+  var hint = document.getElementById("scroll-hint");
+  var hintTimer = null;
+
+  function enterAtlas() {
+    // 隱藏「向下捲動」提示
+    if (hint) {
+      clearTimeout(hintTimer);
+      hint.classList.add("hidden");
+    }
+    cover.classList.add("dismissed");
+    atlas.classList.add("active");
+    document.body.style.overflow = "hidden";
+    atlas.scrollTop = 0;
+    if (typeof map !== "undefined" && map) map.invalidateSize();
+    setTimeout(function () {
+      if (typeof map === "undefined" || !map) return;
+      map.invalidateSize();
+      map.fitBounds(HOME_BOUNDS, { padding: HOME_PADDING });
+      relayoutLabels();
+    }, 300);
+  }
+
+  function backToHome() {
+    if (typeof map !== "undefined" && map) map.closePopup();
+    atlas.classList.remove("active");
+    cover.classList.remove("dismissed");
+    document.body.style.overflow = "";
+    window.scrollTo(0, 0);
+    atlas.scrollTop = 0;
+    if (hint) {
+      clearTimeout(hintTimer);
+      hintTimer = setTimeout(function () { hint.classList.remove("hidden"); }, 2600);
+    }
+  }
+  window.backToHomeFromCover = backToHome;  // 供 inline onclick 使用
+
+  document.getElementById("enter-btn").addEventListener("click", enterAtlas);
+  homeBtn.addEventListener("click", backToHome);
+
+  // 首頁首次載入：提示（已用 CSS 隱藏）
+  if (hint) { hint.classList.add("hidden"); }
+
+  /* ---------- 2. 工具函式 ---------- */
+  function clean(v) {
+    return v === null || v === undefined ? "" : String(v).replace(/\u00a0/g, " ").trim();
+  }
+  // 解析 "兒子(34); 沒有(29)" → [{term:"兒子", count:34}, ...]
+  function parseTerms(str) {
+    var out = [];
+    clean(str).split(/[;；]/).forEach(function (piece) {
+      var m = piece.trim().match(/^(.+?)\s*[（(]\s*(\d+)\s*[)）]\s*$/);
+      if (m) out.push({ term: m[1].trim(), count: parseInt(m[2], 10) });
+      else if (piece.trim()) out.push({ term: piece.trim(), count: 0 });
+    });
+    return out;
+  }
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // 文字雲圖片原始尺寸（避免第一次開啟 popup 時圖片未載入導致版面錯位）
+  var WORD_CLOUD_MAX = { w: 150, h: 120 };
+  var WORD_CLOUD_SIZE = {
+    HLP: [1177, 745],
+    LTT: [1344, 760],
+    MKC: [1414, 733],
+    SLO: [1314, 811],
+    SLP: [1386, 786],
+    SMK: [825, 586],
+    WKW: [1183, 766]
+  };
+  function wordCloudDims(id) {
+    var natural = WORD_CLOUD_SIZE[id];
+    if (!natural) return null;
+    var nw = natural[0], nh = natural[1];
+    var scale = Math.min(WORD_CLOUD_MAX.w / nw, WORD_CLOUD_MAX.h / nh, 1);
+    return { w: Math.round(nw * scale), h: Math.round(nh * scale) };
+  }
+
+  /* ---------- 3. 整理資料 ---------- */
+  var features = json_village_text_points_1.features;
+  var records = features.map(function (f) {
+    var p = f.properties;
+    return {
+      id: clean(p.village_id),
+      name: clean(p.village_name),
+      fid: clean(p.fid),
+      terms: parseTerms(p.top_terms),
+      collocates: clean(p.collocates),
+      vos_url: clean(p.vos_url),
+      wordCloud: clean(p.word_cloud),
+      raw: p
+    };
+  });
+
+  /* ---------- 4. 建立地圖 ---------- */
+  var CENTER = [22.2735, 113.9335];
+
+  var map = L.map("map", {
+    zoomControl: false,
+    maxZoom: 24,
+    minZoom: 10,
+    zoomSnap: 0.25,
+    attributionControl: false
+  }).setView(CENTER, 16);
+  window.__map = map;
+
+  L.control.zoom({ position: "topright" }).addTo(map);
+
+  // 地圖來源（左下角）
+  L.control.attribution({ position: "bottomleft", prefix: false })
+    .addAttribution('<span class="map-credit">地圖來源：香港地圖服務</span>')
+    .addTo(map);
+
+  // 底圖（1992 年掃描地圖）
+  var IMG_BOUNDS = [[22.26706293630885, 113.9255198340798], [22.28029432634431, 113.94146608497452]];
+  L.imageOverlay(
+    "data/clippedmap_0.png",
+    IMG_BOUNDS,
+    { pane: "overlayPane", opacity: 1 }
+  ).addTo(map);
+
+  // 首頁範圍 = 掃描圖本身的外框（避免留白，畫面放大）
+  var HOME_BOUNDS = L.latLngBounds(IMG_BOUNDS);
+  var HOME_PADDING = [0, 0];
+
+  /* ---------- 5. 村莊圖層 ---------- */
+  var markerStyle = {
+    radius: 7.5,
+    color: "#3a2818",
+    weight: 1.4,
+    fillColor: "#c69b56",
+    fillOpacity: 1,
+    opacity: 1
+  };
+  var markerStyleDim = {
+    radius: 5,
+    color: "#9a8770",
+    weight: 1,
+    fillColor: "#d9cdb8",
+    fillOpacity: .55,
+    opacity: .5
+  };
+
+  var markerLayer = L.geoJSON(json_village_text_points_1, {
+    pointToLayer: function (feature, latlng) {
+      return L.circleMarker(latlng, markerStyle);
+    },
+    onEachFeature: function (feature, layer) {
+      var rec = records.find(function (r) { return r.fid === clean(feature.properties.fid); });
+      layer.__rec = rec;
+      layer.__name = rec.name;
+
+      // 永久標籤（位置由 relayoutLabels() 依實際像素重新安排，避免互相重疊）
+      layer.bindTooltip(esc(rec.name), {
+        permanent: true,
+        direction: "right",
+        offset: [8, 0],
+        className: "village-label"
+      });
+
+      layer.bindPopup(buildPopup(rec), { maxWidth: 320, maxHeight: 420 });
+
+      layer.on("click", function () {
+        loadNetwork(rec);
+      });
+    }
+  }).addTo(map);
+  window.markerLayer = markerLayer; // 供測試與外部呼叫使用
+
+  /* ---------- 5b. 標籤避讓：依畫面像素安排，確保不重疊 ---------- */
+  var LABEL_DIRS = [
+    { dir: "right",  off: [12, 0]   },
+    { dir: "left",   off: [-12, 0]  },
+    { dir: "top",    off: [0, -12]  },
+    { dir: "bottom", off: [0, 12]   },
+    { dir: "topright", off: [9, -9] },
+    { dir: "bottomright", off: [9, 9] },
+    { dir: "topleft", off: [-9, -9] },
+    { dir: "bottomleft", off: [-9, 9] }
+  ];
+
+  function labelBox(layer, dir, off, size) {
+    var pt = map.latLngToContainerPoint(layer.getLatLng());
+    var anchor = { x: pt.x + off[0], y: pt.y + off[1] };
+    var w = size.w, h = size.h, pad = 2;
+    var left, top;
+    if (dir === "right" || dir === "topright" || dir === "bottomright") left = anchor.x;
+    else if (dir === "left" || dir === "topleft" || dir === "bottomleft") left = anchor.x - w;
+    else left = anchor.x - w / 2;
+
+    if (dir === "bottom" || dir === "bottomright" || dir === "bottomleft") top = anchor.y;
+    else if (dir === "top" || dir === "topright" || dir === "topleft") top = anchor.y - h;
+    else top = anchor.y - h / 2;
+
+    return { l: left - pad, t: top - pad, r: left + w + pad, b: top + h + pad };
+  }
+
+  function overlaps(a, b) {
+    return !(a.r <= b.l || a.l >= b.r || a.b <= b.t || a.t >= b.b);
+  }
+
+  function relayoutLabels() {
+    if (!map || !map._loaded) return;
+    var mapSize = map.getSize();
+    var items = [];
+
+    markerLayer.eachLayer(function (layer) {
+      if (layer.__hidden) return;
+      var tip = layer.getTooltip && layer.getTooltip();
+      if (!tip) return;
+      var el = tip.getElement();
+      var size = el && el.offsetWidth
+        ? { w: el.offsetWidth, h: el.offsetHeight }
+        : { w: Math.max(34, (layer.__name || "").length * 13), h: 18 };
+      items.push({ layer: layer, size: size });
+    });
+
+    // 由左至右、由上至下依序擺放，先到先得
+    items.sort(function (a, b) {
+      var pa = map.latLngToContainerPoint(a.layer.getLatLng());
+      var pb = map.latLngToContainerPoint(b.layer.getLatLng());
+      return (pa.y - pb.y) || (pa.x - pb.x);
+    });
+
+    // 圓點本身也視為障礙物（避免標籤蓋住其他村莊的圓點）
+    var obstacle = [];
+    markerLayer.eachLayer(function (layer) {
+      if (layer.__hidden) return;
+      var p = map.latLngToContainerPoint(layer.getLatLng());
+      obstacle.push({ l: p.x - 9, t: p.y - 9, r: p.x + 9, b: p.y + 9 });
+    });
+
+    var placed = [];
+    items.forEach(function (item) {
+      var layer = item.layer;
+      var size = item.size;
+      var best = null;
+      var bestScore = Infinity;
+      var ownPt = map.latLngToContainerPoint(layer.getLatLng());
+
+      LABEL_DIRS.forEach(function (d) {
+        var box = labelBox(layer, d.dir, d.off, size);
+        // 超出地圖範圍 → 重罰
+        var out = 0;
+        if (box.l < 2) out += 2 - box.l;
+        if (box.t < 2) out += 2 - box.t;
+        if (box.r > mapSize.x - 2) out += box.r - (mapSize.x - 2);
+        if (box.b > mapSize.y - 2) out += box.b - (mapSize.y - 2);
+
+        var score = out * 1000;
+        placed.forEach(function (b) {
+          if (overlaps(box, b)) score += 500;   // 標籤互相重疊：高罰分
+        });
+        obstacle.forEach(function (b) {
+          if (overlaps(box, b)) score += 3;     // 蓋到其他圓點：中等罰分
+        });
+        // 偏好右側、其次其他方向（次要因素）
+        score += LABEL_DIRS.indexOf(d) * 0.02;
+
+        if (score < bestScore) { bestScore = score; best = { d: d, box: box }; }
+      });
+
+      layer.setTooltipContent(esc(layer.__name));
+      var tip = layer.getTooltip();
+      tip.options.direction = best.d.dir;
+      tip.options.offset = best.d.off;
+      if (layer.isTooltipOpen && layer.isTooltipOpen()) {
+        layer.closeTooltip();
+        layer.openTooltip();
+      }
+      var el2 = tip.getElement();
+      if (el2) el2.className = "leaflet-tooltip village-label leaflet-tooltip-" + best.d.dir;
+      placed.push(best.box);
+    });
+  }
+
+  var relayoutTimer = null;
+  function scheduleRelayout() {
+    clearTimeout(relayoutTimer);
+    relayoutTimer = setTimeout(relayoutLabels, 90);
+  }
+  map.on("zoomend moveend resize", scheduleRelayout);
+  markerLayer.on("tooltipopen", function () { scheduleRelayout(); });
+
+  /* ---------- 6. 彈出視窗（含欄位名稱） ---------- */
+  function buildPopup(rec) {
+    function row(label, value, isImg) {
+      if (!value) return "";
+      if (isImg) {
+        // qgis2web 匯出的檔名：把 C:\...\x.jpg 的路徑分隔符換成 _
+        var fileName = value.replace(/[\\\/:]/g, "_").trim();
+        var dims = wordCloudDims(rec.id);
+        var sizeAttr = dims ? ' width="' + dims.w + '" height="' + dims.h + '"' : '';
+        return '<tr><th>' + label + '</th><td><img alt="' + esc(label) + '" src="images/' +
+               encodeURIComponent(fileName) + '"' + sizeAttr + '></td></tr>';
+      }
+      return '<tr><th>' + label + '</th><td>' + value + '</td></tr>';
+    }
+
+    var termsHtml = rec.terms.map(function (t) {
+      return esc(t.term) + (t.count ? '<span style="color:#a1917a;font-size:10.5px"> (' + t.count + ')</span>' : "");
+    }).join("　·　");
+
+    var collocHtml = esc(rec.collocates)
+      .split(/\n/).filter(function (s) { return s.trim(); })
+      .map(function (s) { return s.replace(/\s*;\s*/g, "；"); })
+      .join("<br>");
+
+    var vosHtml = rec.vos_url
+      ? '<a href="' + esc(rec.vos_url) + '" data-vos="1">在右側開啟網絡 ↗</a>'
+      : "";
+
+    return '<table class="village-popup-table">' +
+      row("村莊名稱", esc(rec.name)) +
+      row("村莊編號", esc(rec.id)) +
+      row("主要關鍵詞", termsHtml) +
+      row("共現詞", collocHtml) +
+      row("文本網絡", vosHtml) +
+      row("文字雲", rec.wordCloud, true) +
+      row("資料來源", "CUHK Anthropology") +
+      '</table>';
+  }
+
+  // 攔截彈窗內的 VOSviewer 連結：改在右側面板開啟
+  document.getElementById("map").addEventListener("click", function (e) {
+    var a = e.target.closest ? e.target.closest("a[data-vos]") : null;
+    if (a) {
+      e.preventDefault();
+      var url = a.getAttribute("href");
+      var name = (document.getElementById("net-title").textContent || "").trim();
+      loadNetwork({ vos_url: url, name: name });
+      return;
+    }
+    // 點文字雲 → 放大檢視
+    var img = e.target.closest ? e.target.closest(".village-popup-table img") : null;
+    if (img) {
+      var lb = document.getElementById("lightbox");
+      lb.querySelector("img").src = img.src;
+      lb.classList.add("open");
+    }
+  });
+
+  // 圖片載入後重新調整 popup 大小（避免文字雲等圖片晚載入導致內容被截斷）
+  document.getElementById("map").addEventListener("load", function (e) {
+    var img = e.target;
+    if (img && img.tagName === "IMG" && img.closest && img.closest(".leaflet-popup-content")) {
+      var popup = map._popup;
+      if (popup && popup.update) popup.update();
+    }
+  }, true);
+
+  // 關閉燈箱
+  (function initLightbox() {
+    var lb = document.getElementById("lightbox");
+    lb.addEventListener("click", function () { lb.classList.remove("open"); });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && lb.classList.contains("open")) {
+        lb.classList.remove("open");
+        e.stopPropagation();
+      }
+    });
+  })();
+
+  /* ---------- 7. VOSviewer 載入 ---------- */
+  var frame = document.getElementById("vos-frame");
+  var netTitle = document.getElementById("net-title");
+  var netHint = document.getElementById("net-hint");
+  var lastUrl = "";
+
+  function loadNetwork(rec) {
+    if (!rec || !rec.vos_url) {
+      netHint.textContent = "此村莊沒有對應的網絡資料。";
+      return;
+    }
+    var url;
+    try { url = new URL(rec.vos_url); }
+    catch (err) { netHint.textContent = "網絡連結格式有誤，無法載入。"; return; }
+
+    if (url.origin !== "https://app.vosviewer.com") {
+      netHint.textContent = "網絡連結不在允許的來源，無法載入。";
+      return;
+    }
+    url.searchParams.set("simple_ui", "true");
+    var finalUrl = url.toString();
+
+    netTitle.textContent = rec.name || "村莊文本網絡";
+    netHint.textContent = "正在載入「" + (rec.name || "所選村莊") + "」的 VOSviewer 共現網絡…";
+
+    if (finalUrl === lastUrl) {
+      netHint.textContent = "目前顯示「" + rec.name + "」的共現網絡。";
+      return;
+    }
+    lastUrl = finalUrl;
+    frame.src = finalUrl;
+
+    // 若使用 file:// 開啟，iframe 可能被瀏覽器封鎖，給出提示
+    setTimeout(function () {
+      if (document.getElementById("net-title").textContent === (rec.name || "")) {
+        netHint.textContent = "「" + (rec.name || "所選村莊") + "」的共現網絡。若右側持續空白，請改用本機伺服器開啟（python -m http.server）。";
+      }
+    }, 6000);
+  }
+
+  /* ---------- 8. 篩選邏輯 ---------- */
+  // 收集所有關鍵詞
+  var termCounts = {};
+  records.forEach(function (r) {
+    r.terms.forEach(function (t) {
+      termCounts[t.term] = (termCounts[t.term] || 0) + 1;
+    });
+  });
+  var allTerms = Object.keys(termCounts).sort(function (a, b) {
+    return termCounts[b] - termCounts[a] || a.localeCompare(b, "zh-Hant");
+  });
+
+  var activeTerms = new Set();     // 空集合 = 不篩選
+  var activeVillages = new Set();  // 空集合 = 全部顯示
+
+  var termsChips = document.getElementById("terms-chips");
+  var villagesChips = document.getElementById("villages-chips");
+  var countNum = document.getElementById("count-num");
+
+  // 建立關鍵詞 chips
+  allTerms.forEach(function (term) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.dataset.term = term;
+    b.innerHTML = esc(term) + '<span class="n">' + termCounts[term] + "</span>";
+    b.addEventListener("click", function () {
+      if (activeTerms.has(term)) activeTerms.delete(term);
+      else activeTerms.add(term);
+      b.classList.toggle("active");
+      applyFilters();
+    });
+    termsChips.appendChild(b);
+  });
+
+  // 建立村落 chips
+  records.forEach(function (r) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.dataset.village = r.fid;
+    b.innerHTML = esc(r.name);
+    b.addEventListener("click", function () {
+      if (activeVillages.has(r.fid)) activeVillages.delete(r.fid);
+      else activeVillages.add(r.fid);
+      b.classList.toggle("active");
+      applyFilters();
+    });
+    villagesChips.appendChild(b);
+  });
+
+  function matches(rec) {
+    // 村落篩選（OR）
+    if (activeVillages.size > 0 && !activeVillages.has(rec.fid)) return false;
+    // 關鍵詞篩選（OR：命中任一關鍵詞即顯示）
+    if (activeTerms.size > 0) {
+      var hit = rec.terms.some(function (t) { return activeTerms.has(t.term); });
+      if (!hit) return false;
+    }
+    return true;
+  }
+
+  function applyFilters() {
+    var shown = 0;
+    markerLayer.eachLayer(function (layer) {
+      var rec = layer.__rec;
+      var ok = rec ? matches(rec) : true;
+      layer.__hidden = !ok;
+      layer.setStyle(ok ? markerStyle : markerStyleDim);
+      if (ok) {
+        shown++;
+        if (!map.hasLayer(layer)) map.addLayer(layer);
+      }
+      var el = layer.getElement && layer.getElement();
+      if (el) el.style.cursor = ok ? "pointer" : "default";
+      // 標籤只在符合時顯示
+      if (layer.getTooltip()) {
+        if (ok) layer.openTooltip();
+        else layer.closeTooltip();
+      }
+    });
+    countNum.textContent = shown;
+    scheduleRelayout();
+
+    // 若目前右側顯示的村落被篩掉，給個提示
+    if (shown === 0) {
+      netHint.textContent = "目前沒有村落符合篩選條件。";
+    }
+  }
+
+  // 全部 / 清除 按鈕
+  document.querySelector('[data-act="topterms-all"]').addEventListener("click", function () {
+    allTerms.forEach(function (t) { activeTerms.add(t); });
+    Array.prototype.forEach.call(termsChips.children, function (c) { c.classList.add("active"); });
+    applyFilters();
+  });
+  document.querySelector('[data-act="topterms-clear"]').addEventListener("click", function () {
+    activeTerms.clear();
+    Array.prototype.forEach.call(termsChips.children, function (c) { c.classList.remove("active"); });
+    applyFilters();
+  });
+  document.querySelector('[data-act="villages-all"]').addEventListener("click", function () {
+    activeVillages.clear();
+    Array.prototype.forEach.call(villagesChips.children, function (c) { c.classList.remove("active"); });
+    applyFilters();
+  });
+  document.querySelector('[data-act="villages-clear"]').addEventListener("click", function () {
+    activeVillages.clear();
+    Array.prototype.forEach.call(villagesChips.children, function (c) { c.classList.remove("active"); });
+    applyFilters();
+  });
+
+  // 重設視圖
+  document.getElementById("reset-view").addEventListener("click", function () {
+    activeTerms.clear();
+    activeVillages.clear();
+    Array.prototype.forEach.call(termsChips.children, function (c) { c.classList.remove("active"); });
+    Array.prototype.forEach.call(villagesChips.children, function (c) { c.classList.remove("active"); });
+    map.closePopup();
+    map.fitBounds(HOME_BOUNDS, { padding: HOME_PADDING });
+    applyFilters();
+    setTimeout(relayoutLabels, 350);
+  });
+
+  /* ---------- 9. 可拖拉分欄（桌機：左右；手機：上下） ---------- */
+  (function initSplitter() {
+    var splitter = document.getElementById("splitter");
+    var body = document.getElementById("atlas-body");
+    var mapWrap = document.getElementById("map-wrap");
+    var net = document.getElementById("net");
+    if (!splitter || !body || !mapWrap || !net) return;
+
+    var dragging = false;
+    var NARROW = 900;
+
+    function isNarrow() { return window.innerWidth <= NARROW; }
+
+    function onDown(e) {
+      dragging = true;
+      splitter.classList.add("dragging");
+      document.body.classList.add("dragging-col");
+      document.body.style.cursor = isNarrow() ? "row-resize" : "col-resize";
+      if (e.pointerId !== undefined && splitter.setPointerCapture) {
+        try { splitter.setPointerCapture(e.pointerId); } catch (err) {}
+      }
+      e.preventDefault();
+    }
+
+    function onMove(e) {
+      if (!dragging) return;
+      e.preventDefault();
+
+      if (isNarrow()) {
+        var bodyTop = body.getBoundingClientRect().top;
+        var sideH = document.getElementById("side").offsetHeight;
+        var maxH = body.clientHeight - 9 - 140;
+        var h = e.clientY - bodyTop - sideH - 4.5;
+        h = Math.max(180, Math.min(h, maxH));
+        mapWrap.style.height = h + "px";
+        mapWrap.style.minHeight = "0";
+      } else {
+        var rect = body.getBoundingClientRect();
+        var totalW = rect.width;
+        var netW = rect.right - e.clientX;
+        var maxNet = totalW - 260;   // 地圖最少留 260px
+        netW = Math.max(220, Math.min(netW, maxNet));
+        net.style.flex = "0 0 " + netW + "px";
+        net.style.width = netW + "px";
+      }
+      map.invalidateSize();
+      map.invalidateSize();
+      relayoutLabels();
+    }
+
+    function onUp() {
+      if (!dragging) return;
+      dragging = false;
+      splitter.classList.remove("dragging");
+      document.body.classList.remove("dragging-col");
+      document.body.style.cursor = "";
+      map.invalidateSize();
+    }
+
+    splitter.addEventListener("mousedown", onDown);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+
+    // 觸控支援
+    splitter.addEventListener("touchstart", function (e) {
+      dragging = true;
+      splitter.classList.add("dragging");
+      document.body.classList.add("dragging-col");
+    }, { passive: true });
+    window.addEventListener("touchmove", function (e) {
+      if (!dragging) return;
+      var t = e.touches[0];
+      onMove({ clientX: t.clientX, clientY: t.clientY, preventDefault: function () {} });
+    }, { passive: true });
+    window.addEventListener("touchend", onUp);
+
+    // 鍵盤 accessibility：左右鍵微調
+    splitter.addEventListener("keydown", function (e) {
+      var step = e.shiftKey ? 40 : 12;
+      var cur = net.getBoundingClientRect().width;
+      if (e.key === "ArrowLeft") { cur += step; }
+      else if (e.key === "ArrowRight") { cur -= step; }
+      else return;
+      e.preventDefault();
+      var maxNet = body.clientWidth - 260;
+      cur = Math.max(220, Math.min(cur, maxNet));
+      net.style.flex = "0 0 " + cur + "px";
+      net.style.width = cur + "px";
+      map.invalidateSize();
+    });
+
+    // 雙擊分隔條 = 回到預設 30%
+    splitter.addEventListener("dblclick", function () {
+      if (isNarrow()) {
+        net.style.width = "";
+        mapWrap.style.height = "";
+        mapWrap.style.minHeight = "";
+      } else {
+        net.style.flex = "0 0 30%";
+        net.style.width = "30%";
+      }
+      map.invalidateSize();
+    });
+  })();
+
+  /* ---------- 10. 初始狀態 ---------- */
+  map.fitBounds(HOME_BOUNDS, { padding: HOME_PADDING });
+  applyFilters();
+  setTimeout(relayoutLabels, 200);
+  setTimeout(relayoutLabels, 800);
+
+  // 地圖在版面變動後重新計算尺寸
+  if (window.ResizeObserver) {
+    var ro = new ResizeObserver(function () {
+      map.invalidateSize();
+      scheduleRelayout();
+    });
+    ro.observe(document.getElementById("map-wrap"));
+  }
+  window.addEventListener("resize", function () {
+    map.invalidateSize();
+    scheduleRelayout();
+  });
+  window.addEventListener("load", function () {
+    map.invalidateSize();
+    map.fitBounds(HOME_BOUNDS, { padding: HOME_PADDING });
+    scheduleRelayout();
+  });
+})();
+</script>
+</body>
+</html>

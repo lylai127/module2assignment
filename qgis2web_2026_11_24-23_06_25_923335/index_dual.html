@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <link rel="stylesheet" href="css/leaflet.css">
+        <link rel="stylesheet" href="css/qgis2web.css">
+        <link rel="stylesheet" href="css/fontawesome-all.min.css">
+        <link rel="stylesheet" href="css/leaflet.photon.css">
+        <style>
+        #map {
+            width: 1025px;
+            height: 601px;
+        }
+        </style>
+        <title></title>
+        <style>
+        html,body{margin:0;padding:0;height:100%}
+        #workspace{display:flex;width:100%;height:100vh}
+        #workspace #map{position:relative!important;top:auto!important;left:auto!important;width:50%!important;height:100%!important;flex:0 0 50%}
+        #network-panel{flex:1;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;min-width:0;background:#fafafa;border-left:1px solid #ccc;overflow:auto}
+        #network-panel h3{margin:0 0 4px 0;font-family:'Open Sans',sans-serif;color:#323232}
+        #network-panel p{margin:0 0 8px 0;font-family:'Open Sans',sans-serif;color:#666;font-size:11px}
+#vos-frame{flex:1;width:100%;min-height:350px;border:1px solid #ccc;background:#fff}
+.village-popup-table{border-collapse:collapse;font-family:'Open Sans',sans-serif;font-size:12px}
+.village-popup-table th{text-align:left;vertical-align:top;padding:2px 8px 2px 2px;color:#555;white-space:nowrap}
+.village-popup-table td{padding:2px;vertical-align:top;max-width:60vw}
+.village-popup-table img{max-width:60vw;max-height:40vh}
+@media(max-width:700px){
+        #workspace{flex-direction:column}
+        #workspace #map{width:100%!important;height:45vh!important;flex:none}
+        #network-panel{min-height:50vh;border-left:none;border-top:1px solid #ccc}}
+        </style>
+    </head>
+    <body>
+        <div id="workspace">
+            <div id="map"></div>
+            <aside id="network-panel">
+                <h3 id="network-title">Village Network</h3>
+                <p id="network-hint">Click a village point on the map to load its co-occurrence network.</p>
+                <iframe id="vos-frame" title="VOSviewer network" src="data:text/html;charset=utf-8,%3C!doctype%20html%3E%3Chtml%3E%3Cbody%20style%3D%22margin%3A0%3Bheight%3A100vh%3Bdisplay%3Aflex%3Balign-items%3Acenter%3Bjustify-content%3Acenter%3Bfont-family%3AOpen%20Sans%2Csans-serif%3Bcolor%3A%23999%3B%22%3E%3Cp%3EClick%20a%20village%20point%20to%20load%20its%20network.%3C%2Fp%3E%3C%2Fbody%3E%3C%2Fhtml%3E"></iframe>
+            </aside>
+        </div>
+        <script src="js/qgis2web_expressions.js"></script>
+        <script src="js/leaflet.js"></script>
+        <script src="js/leaflet.rotatedMarker.js"></script>
+        <script src="js/leaflet.pattern.js"></script>
+        <script src="js/leaflet-hash.js"></script>
+        <script src="js/Autolinker.min.js"></script>
+        <script src="js/rbush.min.js"></script>
+        <script src="js/labelgun.min.js"></script>
+        <script src="js/labels.js"></script>
+        <script src="js/leaflet.photon.js"></script>
+        <script src="data/village_text_points_1.js"></script>
+        <script>
+        var map = L.map('map', {
+            zoomControl:false, maxZoom:28, minZoom:1
+        }).fitBounds([[22.266725312517035,113.9207571580496],[22.280631348419707,113.94622826222997]]);
+        var hash = new L.Hash(map);
+        map.attributionControl.setPrefix('<a href="https://github.com/qgis2web/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
+        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
+        // remove popup's row if "visible-with-data"
+        function removeEmptyRowsFromPopupContent(content, feature) {
+         var tempDiv = document.createElement('div');
+         tempDiv.innerHTML = content;
+         var rows = tempDiv.querySelectorAll('tr');
+         for (var i = 0; i < rows.length; i++) {
+             var td = rows[i].querySelector('td.visible-with-data');
+             var key = td ? td.id : '';
+             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
+                 rows[i].parentNode.removeChild(rows[i]);
+             }
+         }
+         return tempDiv.innerHTML;
+        }
+        // modify popup if contains media
+        function addClassToPopupIfMedia(content, popup) {
+            var tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            var imgTd = tempDiv.querySelector('td img');
+            if (imgTd) {
+                var src = imgTd.getAttribute('src');
+                if (/\.(jpg|jpeg|png|gif|bmp|webp|avif)$/i.test(src)) {
+                    popup._contentNode.classList.add('media');
+                    var img = popup._contentNode.querySelector('td img');
+                    if (img) {
+                        // If already loaded (cache), update immediately
+                        if (img.complete && img.naturalHeight > 0) {
+                            popup.update();
+                        } else {
+                            img.addEventListener('load', function() {
+                                popup.update();
+                            });
+                            img.addEventListener('error', function() {
+                                popup.update();
+                            });
+                        }
+                    }
+                } else if (/\.(mp3|wav|ogg|aac)$/i.test(src)) {
+                    var audio = document.createElement('audio');
+                    audio.controls = true;
+                    audio.src = src;
+                    imgTd.parentNode.replaceChild(audio, imgTd);
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp4|webm|ogg|mov)$/i.test(src)) {
+                    var video = document.createElement('video');
+                    video.controls = true;
+                    video.src = src;
+                    video.style.width = "400px";
+                    video.style.height = "300px";
+                    video.style.maxHeight = "60vh";
+                    video.style.maxWidth = "60vw";
+                    imgTd.parentNode.replaceChild(video, imgTd);
+                    popup._contentNode.classList.add('media');
+                    // Aggiorna il popup quando il video carica i metadati
+                    video.addEventListener('loadedmetadata', function() {
+                        popup.update();
+                    });
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else {
+                    popup._contentNode.classList.remove('media');
+                }
+            } else {
+                popup._contentNode.classList.remove('media');
+            }
+        }
+        var zoomControl = L.control.zoom({
+            position: 'topleft'
+        }).addTo(map);
+        var bounds_group = new L.featureGroup([]);
+        function setBounds() {
+        }
+        map.createPane('pane_clippedmap_0');
+        map.getPane('pane_clippedmap_0').style.zIndex = 400;
+        var img_clippedmap_0 = 'data/clippedmap_0.png';
+        var img_bounds_clippedmap_0 = [[22.26706293630885,113.9255198340798],[22.28029432634431,113.94146608497452]];
+        var layer_clippedmap_0 = new L.imageOverlay(img_clippedmap_0,
+                                              img_bounds_clippedmap_0,
+                                              {pane: 'pane_clippedmap_0'});
+        bounds_group.addLayer(layer_clippedmap_0);
+        map.addLayer(layer_clippedmap_0);
+        function pop_village_text_points_1(feature, layer) {
+            function fmt(key, label, isImage) {
+                var val = feature.properties[key];
+                if (val === null || val === undefined || String(val).trim() === '') return '';
+                if (isImage) {
+                    var name = String(val).replace(/[\\\/:]/g, '_').trim();
+                    return '<tr><th>' + label + '</th><td><img alt="' + label + '" src="images/' + encodeURIComponent(name) + '"></td></tr>';
+                }
+                var text = String(val).replace(/'/g, '&#39;').trim();
+                if (key === 'top_terms' || key === 'collocates') text = text.replace(/\n/g, '<br>');
+                return '<tr><th>' + label + '</th><td>' + (key === 'vos_url' ? autolinker.link(text) : autolinker.link(text.toLocaleString())) + '</td></tr>';
+            }
+            var popupContent = '<table class="village-popup-table">'
+                + fmt('fid', 'FID')
+                + fmt('village_id', 'Village ID')
+                + fmt('village_name', 'Village Name')
+                + fmt('top_terms', 'Top Terms')
+                + fmt('collocates', 'Collocates')
+                + fmt('vos_url', 'VOSviewer Network')
+                + fmt('word_cloud', 'Word Cloud', true)
+                + '</table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+function style_village_text_points_1_0() {
+            return {
+                pane: 'pane_village_text_points_1',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(235,187,142,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_village_text_points_1');
+        map.getPane('pane_village_text_points_1').style.zIndex = 401;
+        map.getPane('pane_village_text_points_1').style['mix-blend-mode'] = 'normal';
+        var layer_village_text_points_1 = new L.geoJson(json_village_text_points_1, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_village_text_points_1',
+            layerName: 'layer_village_text_points_1',
+            pane: 'pane_village_text_points_1',
+            onEachFeature: pop_village_text_points_1,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_village_text_points_1_0(feature));
+            },
+        });
+        bounds_group.addLayer(layer_village_text_points_1);
+        map.addLayer(layer_village_text_points_1);
+        setBounds();
+        var i = 0;
+        layer_village_text_points_1.eachLayer(function(layer) {
+            var context = {
+                feature: layer.feature,
+                variables: {}
+            };
+            layer.bindTooltip((layer.feature.properties['village_name'] !== null?String('<div style="color: #805c30; font-size: 3pt; font-family: \'Microsoft JhengHei\', sans-serif;">' + layer.feature.properties['village_name']).replace(/\\n/g, '<br>') + '</div>':''), {permanent: true, offset: [-0, -16], className: 'css_village_text_points_1'});
+            labels.push(layer);
+            totalMarkers += 1;
+              layer.added = true;
+              addLabel(layer, i);
+              i++;
+        });
+        L.ImageOverlay.include({
+            getBounds: function () {
+                return this._bounds;
+            }
+        });
+        resetLabels([layer_village_text_points_1]);
+        map.on("zoomend", function(){
+            resetLabels([layer_village_text_points_1]);
+        });
+        map.on("layeradd", function(){
+            resetLabels([layer_village_text_points_1]);
+        });
+        map.on("layerremove", function(){
+            resetLabels([layer_village_text_points_1]);
+        });
+        </script>
+        <script>
+        (function(){
+          if (typeof map === "undefined" || typeof map.on !== "function") {
+            console.error("Leaflet map not found");
+            return;
+          }
+
+          var frame = document.getElementById("vos-frame");
+          var title = document.getElementById("network-title");
+          var hint = document.getElementById("network-hint");
+
+          function loadNetwork(props) {
+            if (!props || !props.vos_url) return;
+            var url;
+            try { url = new URL(String(props.vos_url)); }
+            catch (e) { console.error("Invalid VOSviewer URL"); return; }
+            if (url.origin !== "https://app.vosviewer.com") return;
+            url.searchParams.set("simple_ui", "true");
+            title.textContent = props.village_name || "Village Network";
+            hint.textContent = "Showing VOSviewer network for " + (props.village_name || "selected village") + ".";
+            frame.src = url.toString();
+          }
+
+          // When a village popup opens, load that village's network in the right panel
+          map.on("popupopen", function(event) {
+            var src = event.popup && event.popup._source;
+            var props = src && src.feature && src.feature.properties;
+            loadNetwork(props);
+          });
+
+          // If the user clicks the vos_url link inside a popup,
+          // open it in the side panel instead of a new browser tab
+          document.getElementById("map").addEventListener("click", function(event) {
+            var a = event.target.closest ? event.target.closest("a") : null;
+            if (a) {
+              var href = a.getAttribute("href") || "";
+              if (href.indexOf("https://app.vosviewer.com") === 0) {
+                event.preventDefault();
+                var props = { vos_url: href, village_name: title.textContent };
+                loadNetwork(props);
+              }
+            }
+          });
+
+          // Make sure Leaflet recalculates its size after the side-panel layout
+          setTimeout(function() { map.invalidateSize(); }, 100);
+          window.addEventListener("resize", function() { map.invalidateSize(); });
+        })();
+        </script>
+    </body>
+</html>
